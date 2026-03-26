@@ -524,19 +524,6 @@ export function Sidebar({
                 <li>{t('dialogs:initialize.setupSpecs')}</li>
               </ul>
             </div>
-            {!settings.autoBuildPath && (
-              <div className="mt-4 rounded-lg border border-warning/50 bg-warning/10 p-4 text-sm">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-                  <div>
-                    <p className="font-medium text-warning">{t('dialogs:initialize.sourcePathNotConfigured')}</p>
-                    <p className="text-muted-foreground mt-1">
-                      {t('dialogs:initialize.sourcePathNotConfiguredDescription')}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={handleSkipInit} disabled={isInitializing}>
@@ -544,7 +531,7 @@ export function Sidebar({
             </Button>
             <Button
               onClick={handleInitialize}
-              disabled={isInitializing || !settings.autoBuildPath}
+              disabled={isInitializing}
             >
               {isInitializing ? (
                 <>

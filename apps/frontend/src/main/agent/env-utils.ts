@@ -107,14 +107,17 @@ export function getOAuthModeClearVars(apiProfileEnv: Record<string, string>): Re
     return {};
   }
 
-  // In OAuth mode (no API profile), clear all ANTHROPIC_* vars
-  // Setting to empty string ensures they override any values from process.env
-  // Python's `if token:` checks treat empty strings as falsy
+  // In OAuth mode (no API profile), clear stale ANTHROPIC_* vars.
+  // Setting to empty string ensures they override any values from process.env.
+  // Python's `if token:` checks treat empty strings as falsy.
   //
   // IMPORTANT: ANTHROPIC_API_KEY is included to prevent Claude Code from using
   // API keys that may be present in the shell environment instead of OAuth tokens.
   // Without clearing this, Claude Code would show "Claude API" instead of "Claude Max".
-  return {
+  //
+  // ANTHROPIC_AUTH_TOKEN is preserved if set in process.env — it is a valid OAuth
+  // auth mechanism (e.g. Docker/env-var mode) and clearing it causes 401 errors.
+  const result: Record<string, string> = {
     ANTHROPIC_API_KEY: '',
     ANTHROPIC_AUTH_TOKEN: '',
     ANTHROPIC_BASE_URL: '',
@@ -123,4 +126,10 @@ export function getOAuthModeClearVars(apiProfileEnv: Record<string, string>): Re
     ANTHROPIC_DEFAULT_SONNET_MODEL: '',
     ANTHROPIC_DEFAULT_OPUS_MODEL: ''
   };
+
+  if (process.env.ANTHROPIC_AUTH_TOKEN) {
+    result.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
+  }
+
+  return result;
 }

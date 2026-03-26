@@ -1,0 +1,9 @@
+node_modules
+apps/frontend/node_modules
+apps/backend/.venv
+apps/backend/__pycache__
+apps/frontend/out
+apps/frontend/dist
+.auto-claude
+.worktrees
+*.log

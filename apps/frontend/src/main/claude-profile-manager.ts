@@ -14,6 +14,8 @@
 import { app } from 'electron';
 import { join } from 'path';
 import { mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 import { homedir } from 'os';
 import type {
   ClaudeProfile,
@@ -57,6 +59,7 @@ import {
   getEmailFromConfigDir
 } from './claude-profile/profile-utils';
 import { debugLog } from '../shared/utils/debug-logger';
+import { readSettingsFile, writeSettingsFile } from './settings-utils';
 
 /**
  * Manages Claude Code profiles for multi-account support.
@@ -108,6 +111,9 @@ export class ClaudeProfileManager {
     // Populate missing subscription metadata for existing profiles
     // This reads subscriptionType and rateLimitTier from Keychain credentials
     this.populateSubscriptionMetadata();
+
+    // Auto-configure account when an env token is present (e.g. Docker deployments)
+    this.autoConfigureEnvTokenAccount();
 
     this.initialized = true;
     console.log('[ClaudeProfileManager] Initialization complete');
@@ -207,6 +213,73 @@ export class ClaudeProfileManager {
   }
 
   /**
+   * Auto-configure an account when CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_AUTH_TOKEN) is
+   * present in the environment (typical in Docker / CI deployments where there is no
+   * browser or system keychain available).
+   *
+   * This does two things:
+   *  1. Updates the active profile's description so it clearly shows it is env-token backed.
+   *  2. Marks onboardingCompleted=true in settings so the setup wizard is skipped on first launch.
+   */
+  private autoConfigureEnvTokenAccount(): void {
+    const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+    if (!envToken) {
+      return;
+    }
+
+    const tokenVar = process.env.CLAUDE_CODE_OAUTH_TOKEN
+      ? 'CLAUDE_CODE_OAUTH_TOKEN'
+      : 'ANTHROPIC_AUTH_TOKEN';
+
+    console.log(`[ClaudeProfileManager] ${tokenVar} detected — auto-configuring account and skipping onboarding`);
+
+    // Update the active profile to reflect env-token authentication
+    const activeProfile = this.data.profiles.find(p => p.id === this.data.activeProfileId);
+    if (activeProfile) {
+      if (activeProfile.name === 'Primary') {
+        activeProfile.name = 'Docker Account';
+      }
+      activeProfile.description = `Authenticated via ${tokenVar} environment variable`;
+      this.save();
+      console.log(`[ClaudeProfileManager] Account configured: "${activeProfile.name}" (${tokenVar}=${envToken.substring(0, 12)}...)`);
+    }
+
+    // Skip onboarding wizard — no browser/keychain available in Docker
+    const settings = readSettingsFile() || {};
+    let settingsChanged = false;
+
+    if (settings['onboardingCompleted'] !== true) {
+      settings['onboardingCompleted'] = true;
+      settingsChanged = true;
+      console.log('[ClaudeProfileManager] onboardingCompleted set to true (env-token auto-setup complete)');
+    }
+
+    // Auto-detect backend source path so "New Task" is enabled without manual App Settings config.
+    // The backend is at apps/backend relative to the app root (both dev and Docker).
+    if (!settings['autoBuildPath']) {
+      const candidatePaths = [
+        resolve(app.getAppPath(), '..', 'backend'),          // apps/frontend -> apps/backend
+        resolve(process.cwd(), 'apps', 'backend'),           // repo root
+        resolve(__dirname, '..', '..', '..', 'backend'),     // dev: dist/main -> backend
+        '/app/apps/backend',                                 // Docker fixed path
+      ];
+      for (const p of candidatePaths) {
+        if (existsSync(join(p, 'runners', 'spec_runner.py'))) {
+          settings['autoBuildPath'] = p;
+          settingsChanged = true;
+          console.log('[ClaudeProfileManager] Auto-detected autoBuildPath:', p);
+          break;
+        }
+      }
+    }
+
+    if (settingsChanged) {
+      writeSettingsFile(settings);
+    }
+
+  }
+
+  /**
    * Check if the profile manager has been initialized
    */
   isInitialized(): boolean {
@@ -256,10 +329,15 @@ export class ClaudeProfileManager {
    * Computes isAuthenticated for each profile by checking configDir credentials
    */
   getSettings(): ClaudeProfileSettings {
+    // If CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_AUTH_TOKEN is set in the environment,
+    // treat every profile as authenticated — the env var will be used as the token
+    // when no keychain credential is available (see getProfileEnv).
+    const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+
     // Compute isAuthenticated for each profile
     const profilesWithAuth = this.data.profiles.map(profile => ({
       ...profile,
-      isAuthenticated: this.isProfileAuthenticated(profile) || hasValidToken(profile)
+      isAuthenticated: this.isProfileAuthenticated(profile) || hasValidToken(profile) || !!envToken
     }));
 
     return {
@@ -810,7 +888,12 @@ export class ClaudeProfileManager {
       return true;
     }
 
-    // Check 2 & 3: Profile has authenticated configDir (works for both default and non-default)
+    // Check 2: Env token present (Docker / CI — no keychain available)
+    if (process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN) {
+      return true;
+    }
+
+    // Check 3: Profile has authenticated configDir (works for both default and non-default)
     if (this.isProfileAuthenticated(profile)) {
       return true;
     }
@@ -850,8 +933,14 @@ export class ClaudeProfileManager {
         debugLog('[ClaudeProfileManager] getProfileEnv: injected CLAUDE_CODE_OAUTH_TOKEN from Keychain for profile:', profile.name);
         return { CLAUDE_CODE_OAUTH_TOKEN: credentials.token };
       }
+      // No keychain token — fall back to the environment variable if available.
+      const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+      if (envToken) {
+        debugLog('[ClaudeProfileManager] getProfileEnv: no Keychain token, falling back to env var for profile:', profile.name);
+        return { CLAUDE_CODE_OAUTH_TOKEN: envToken };
+      }
       debugLog(
-        '[ClaudeProfileManager] getProfileEnv: no token found in Keychain for profile without configDir:',
+        '[ClaudeProfileManager] getProfileEnv: no token found in Keychain or env for profile without configDir:',
         profile.name
       );
       return {};
@@ -887,6 +976,13 @@ export class ClaudeProfileManager {
         env.CLAUDE_CODE_OAUTH_TOKEN = credentials.token;
         if (process.env.DEBUG === 'true') {
           console.warn('[ClaudeProfileManager] Retrieved OAuth token from Keychain for profile:', profile.name);
+        }
+      } else {
+        // No Keychain token — fall back to the environment variable if available.
+        const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+        if (envToken) {
+          debugLog('[ClaudeProfileManager] getProfileEnv: no Keychain token, falling back to env var for profile:', profile.name);
+          env.CLAUDE_CODE_OAUTH_TOKEN = envToken;
         }
       }
     } catch (error) {

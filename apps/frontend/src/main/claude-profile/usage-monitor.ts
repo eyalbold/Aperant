@@ -373,17 +373,22 @@ export class UsageMonitor extends EventEmitter {
     // missing credentials to show the re-auth indicator. Proactively check all profiles
     // for missing credentials and populate needsReauthProfiles.
     if (!this.currentUsage) {
+      // Docker/CI: env token covers auth — skip keychain check to avoid false re-auth indicators
+      const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+
       // Check all OAuth profiles for missing credentials
-      for (const profile of settings.profiles) {
-        if (profile.configDir) {
-          const expandedConfigDir = profile.configDir.startsWith('~')
-            ? profile.configDir.replace(/^~/, homedir())
-            : profile.configDir;
-          const creds = getCredentialsFromKeychain(expandedConfigDir);
-          if (!creds.token) {
-            // Credentials are missing - mark for re-auth
-            this.needsReauthProfiles.add(profile.id);
-            this.debugLog('[UsageMonitor:getAllProfilesUsage] Profile needs re-auth (no credentials): ' + profile.name);
+      if (!envToken) {
+        for (const profile of settings.profiles) {
+          if (profile.configDir) {
+            const expandedConfigDir = profile.configDir.startsWith('~')
+              ? profile.configDir.replace(/^~/, homedir())
+              : profile.configDir;
+            const creds = getCredentialsFromKeychain(expandedConfigDir);
+            if (!creds.token) {
+              // Credentials are missing - mark for re-auth
+              this.needsReauthProfiles.add(profile.id);
+              this.debugLog('[UsageMonitor:getAllProfilesUsage] Profile needs re-auth (no credentials): ' + profile.name);
+            }
           }
         }
       }
@@ -769,6 +774,12 @@ export class UsageMonitor extends EventEmitter {
    * @returns The credential string or undefined if none available
    */
   private async getCredential(): Promise<string | undefined> {
+    // Docker / CI: env token takes priority over keychain (no keychain available in containers).
+    // Check this before attempting keychain reads to avoid incorrectly marking the profile
+    // as needing re-authentication when credentials are intentionally supplied via env var.
+    // Only use env token if no API profile is active (API profiles have their own keys).
+    const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+
     // Try API profile first (highest priority)
     try {
       const profilesFile = await loadProfilesFile();
@@ -784,6 +795,12 @@ export class UsageMonitor extends EventEmitter {
     } catch (error) {
       // API profile loading failed, fall through to OAuth
       this.debugLog('[UsageMonitor:TRACE] Failed to load API profiles, falling back to OAuth:', error);
+    }
+
+    // If an env token is present (Docker/CI), use it directly — no keychain available.
+    if (envToken) {
+      this.debugLog('[UsageMonitor:TRACE] Using env token (Docker/CI mode) — skipping keychain');
+      return envToken;
     }
 
     // Fall back to OAuth profile - use ensureValidToken for proactive refresh
@@ -1470,9 +1487,13 @@ export class UsageMonitor extends EventEmitter {
       });
 
       if (!response.ok) {
+        // Log response body for all non-OK responses (especially 401) to aid debugging
+        let errorBody = '';
+        try { errorBody = await response.text(); } catch { /* ignore */ }
         console.error('[UsageMonitor] API error:', response.status, response.statusText, {
           provider,
-          endpoint: usageEndpoint
+          endpoint: usageEndpoint,
+          body: errorBody
         });
 
         // Check for auth failures via status code (works for all providers)

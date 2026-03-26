@@ -2,7 +2,7 @@ import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
-import { detectRateLimit, createSDKRateLimitInfo, getBestAvailableProfileEnv } from './rate-limit-detector';
+import { detectRateLimit, createSDKRateLimitInfo, getBestAvailableProfileEnv, isAuthFailureError } from './rate-limit-detector';
 import { parsePythonCommand, getValidatedPythonPath } from './python-detector';
 import { pythonEnvManager, getConfiguredPythonPath } from './python-env-manager';
 import { getAPIProfileEnv } from './services/profile';
@@ -224,17 +224,29 @@ export class TitleGenerator extends EventEmitter {
         data: { pythonCommand: maskUserPaths(pythonCommand) },
       });
 
+      // Build spawn env. When a profile has CLAUDE_CONFIG_DIR set (e.g. Docker Account),
+      // ensureCleanProfileEnv blanks CLAUDE_CODE_OAUTH_TOKEN so the SDK reads credentials
+      // from the config dir. But in Docker env-var mode the config dir has no credentials —
+      // the token lives only in process.env. Re-inject it as a last-resort fallback so the
+      // title generator can authenticate (same approach as agent-process.ts setupEnv).
+      const spawnEnv: Record<string, string> = {
+        ...pythonEnvManager.getPythonEnv(), // Python environment including PYTHONPATH (fixes subprocess Python resolution)
+        ...getSentryEnvForSubprocess(), // Sentry config for subprocess error tracking
+        ...autoBuildEnv,
+        ...profileEnv, // Claude OAuth profile - includes CLAUDE_CONFIG_DIR and clears CLAUDE_CODE_OAUTH_TOKEN
+        ...apiProfileEnv, // API profile (ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, etc.)
+        ...oauthModeClearVars, // Clear stale ANTHROPIC_* vars when in OAuth mode
+        PYTHONUNBUFFERED: '1', // Ensure stdout isn't buffered (critical for reading output before kill/timeout)
+      };
+      // If CLAUDE_CODE_OAUTH_TOKEN was blanked by profile env but is available in process.env,
+      // restore it so Docker/env-var auth works (config dir has no stored credentials there).
+      if (!spawnEnv.CLAUDE_CODE_OAUTH_TOKEN && process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+        spawnEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      }
+
       const childProcess = spawn(pythonCommand, [...pythonBaseArgs, '-c', script], {
         cwd: autoBuildSource,
-        env: {
-          ...pythonEnvManager.getPythonEnv(), // Python environment including PYTHONPATH (fixes subprocess Python resolution)
-          ...getSentryEnvForSubprocess(), // Sentry config for subprocess error tracking
-          ...autoBuildEnv,
-          ...profileEnv, // Claude OAuth profile - includes CLAUDE_CONFIG_DIR and clears CLAUDE_CODE_OAUTH_TOKEN
-          ...apiProfileEnv, // API profile (ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, etc.)
-          ...oauthModeClearVars, // Clear stale ANTHROPIC_* vars when in OAuth mode
-          PYTHONUNBUFFERED: '1', // Ensure stdout isn't buffered (critical for reading output before kill/timeout)
-        }
+        env: spawnEnv
       });
 
       let output = '';

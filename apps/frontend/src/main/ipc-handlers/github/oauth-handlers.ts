@@ -221,6 +221,32 @@ export function registerCheckGhAuth(): void {
     async (): Promise<IPCResult<{ authenticated: boolean; username?: string }>> => {
       debugLog('checkGitHubAuth handler called');
       const env = getAugmentedEnv();
+
+      // If GH_TOKEN is set, gh CLI uses it directly for API calls but `gh auth status`
+      // reports unauthenticated (it only checks stored credentials, not env tokens).
+      // Verify the token works by hitting the API directly instead.
+      if (env.GH_TOKEN) {
+        debugLog('GH_TOKEN present — verifying via gh api user (skipping gh auth status)');
+        try {
+          const username = execFileSync(getToolPath('gh'), ['api', 'user', '--jq', '.login'], {
+            encoding: 'utf-8',
+            stdio: 'pipe',
+            env
+          }).trim();
+          debugLog('Authenticated via GH_TOKEN, username:', username);
+          return {
+            success: true,
+            data: { authenticated: true, username: username || undefined }
+          };
+        } catch (error) {
+          debugLog('GH_TOKEN present but API call failed:', error instanceof Error ? error.message : error);
+          return {
+            success: true,
+            data: { authenticated: false }
+          };
+        }
+      }
+
       try {
         // Check auth status
         debugLog('Running: gh auth status');
@@ -471,12 +497,21 @@ export function registerGetGhToken(): void {
     IPC_CHANNELS.GITHUB_GET_TOKEN,
     async (): Promise<IPCResult<{ token: string }>> => {
       debugLog('getGitHubToken handler called');
+      const env = getAugmentedEnv();
+
+      // If GH_TOKEN is present, return it directly — `gh auth token` only reads stored
+      // credentials and will fail even when the env token is valid.
+      if (env.GH_TOKEN) {
+        debugLog('Returning GH_TOKEN from environment');
+        return { success: true, data: { token: env.GH_TOKEN } };
+      }
+
       try {
         debugLog('Running: gh auth token');
         const token = execFileSync(getToolPath('gh'), ['auth', 'token'], {
           encoding: 'utf-8',
           stdio: 'pipe',
-          env: getAugmentedEnv()
+          env
         }).trim();
 
         if (!token) {

@@ -162,7 +162,7 @@ export function spawnPtyProcess(
     shell = windowsShell.shell;
     shellType = windowsShell.shellType;
   } else {
-    shell = process.env.SHELL || '/bin/zsh';
+    shell = process.env.SHELL || '/bin/bash';
     shellType = undefined; // Not applicable on Unix
   }
 

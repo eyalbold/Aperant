@@ -1,0 +1,41 @@
+services:
+  autoclaude:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "6080:6080"   # noVNC web UI — open http://localhost:6080/vnc.html in your browser
+    volumes:
+      - autoclaude-data:/root/.auto-claude          # Persistent app data (specs, memory, settings)
+      - autoclaude-config:/root/.config/auto-claude-ui  # Electron app settings, profiles, projects
+      - autoclaude-profiles:/root/.claude-profiles  # Per-profile Claude config dirs (credentials)
+      - "${PROJECT_PATH:-./}:/workspace"            # Your project directory (set PROJECT_PATH in docker/.env)
+      - autoclaude-usr:/usr                           # Persist system packages across rebuilds
+      - autoclaude-etc:/etc                           # Persist system config across rebuilds
+      - "c:/lingit:/lingit"                         # Shared host directory
+    env_file:
+      - docker/.env
+    environment:
+      - DISPLAY=:99
+      - RESOLUTION=1280x800x24
+      - CLAUDE_CODE_OAUTH_TOKEN
+      - GH_TOKEN
+      - GIT_USER_NAME
+      - GIT_USER_EMAIL
+    # Electron/Chromium needs extra shared memory for GPU buffers
+    shm_size: "256m"
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+
+volumes:
+  autoclaude-data:
+    driver: local
+  autoclaude-config:
+    driver: local
+  autoclaude-profiles:
+    driver: local
+  autoclaude-usr:
+    driver: local
+  autoclaude-etc:
+    driver: local

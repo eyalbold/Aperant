@@ -1042,19 +1042,6 @@ export function App() {
                   <li>{t('initialize.setupSpecs')}</li>
                 </ul>
               </div>
-              {!settings.autoBuildPath && (
-                <div className="mt-4 rounded-lg border border-warning/50 bg-warning/10 p-4 text-sm">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-                    <div>
-                      <p className="font-medium text-warning">{t('initialize.sourcePathNotConfigured')}</p>
-                      <p className="text-muted-foreground mt-1">
-                        {t('initialize.sourcePathNotConfiguredDescription')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
               {initError && (
                 <div className="mt-4 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm">
                   <div className="flex items-start gap-2">
@@ -1075,7 +1062,7 @@ export function App() {
               </Button>
               <Button
                 onClick={handleInitialize}
-                disabled={isInitializing || !settings.autoBuildPath}
+                disabled={isInitializing}
               >
                 {isInitializing ? (
                   <>

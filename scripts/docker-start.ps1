@@ -46,27 +46,28 @@ Write-Host ""
 $env:CLAUDE_CODE_OAUTH_TOKEN = $token
 
 }
-## ── Validate OAuth token ──────────────────────────────────────────────────────
-#Write-Host "  Validating token..."
-#try {
-    #$response = Invoke-RestMethod -Uri 'https://api.anthropic.com/v1/models' `
-        #-Headers @{
-            #'Authorization' = "Bearer $env:CLAUDE_CODE_OAUTH_TOKEN"
-            #'anthropic-version' = '2023-06-01'
-        #} `
-        #-Method Get -ErrorAction Stop
-    #Write-Host "  Token valid." -ForegroundColor Green
-    #Write-Host ""
-#} catch {
-    #$status = $_.Exception.Response.StatusCode.value__
-    #if ($status -eq 401) {
-        #Write-Error "Token is invalid or expired. Re-run with -Reauth to get a new token."
-        #exit 1
-    #}
-    ## Non-401 errors (network, rate limit) — warn but continue
-    #Write-Warning "Token check returned HTTP $status — continuing anyway."
-    #Write-Host ""
-#}
+# ── Validate OAuth token ──────────────────────────────────────────────────────
+Write-Host "  Validating token..."
+try {
+    $response = Invoke-RestMethod -Uri 'https://api.anthropic.com/v1/models' `
+        -Headers @{
+            'Authorization' = "Bearer $env:CLAUDE_CODE_OAUTH_TOKEN"
+            'anthropic-version' = '2023-06-01'
+            'anthropic-beta' = 'oauth-2025-04-20'
+        } `
+        -Method Get -ErrorAction Stop
+    Write-Host "  Token valid." -ForegroundColor Green
+    Write-Host ""
+} catch {
+    $status = $_.Exception.Response.StatusCode.value__
+    if ($status -eq 401) {
+        Write-Error "Token is invalid or expired. Re-run with -Reauth to get a new token."
+        exit 1
+    }
+    # Non-401 errors (network, rate limit) — warn but continue
+    Write-Warning "Token check returned HTTP $status — continuing anyway."
+    Write-Host ""
+}
 
 # ── Step 2: docker compose down (if running) + up ────────────────────────────
 $running = docker compose ps --quiet 2>$null

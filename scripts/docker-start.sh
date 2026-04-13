@@ -60,6 +60,25 @@ if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
   export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN"
 fi
 
+# ── Validate OAuth token ──────────────────────────────────────────────────────
+echo "  Validating token..."
+HTTP_STATUS="$(curl -s -o /dev/null -w '%{http_code}' \
+  -H "Authorization: Bearer $CLAUDE_CODE_OAUTH_TOKEN" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "anthropic-beta: oauth-2025-04-20" \
+  https://api.anthropic.com/v1/models || echo "000")"
+
+if [[ "$HTTP_STATUS" == "200" ]]; then
+  echo "  Token valid."
+  echo ""
+elif [[ "$HTTP_STATUS" == "401" ]]; then
+  echo "ERROR: Token is invalid or expired. Re-run with --reauth to get a new token."
+  exit 1
+else
+  echo "WARNING: Token check returned HTTP $HTTP_STATUS — continuing anyway."
+  echo ""
+fi
+
 # ── Step 2: docker compose down (if running) + up ────────────────────────────
 RUNNING="$(docker compose ps --quiet 2>/dev/null || true)"
 if [[ -n "$RUNNING" ]]; then

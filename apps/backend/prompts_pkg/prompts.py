@@ -175,8 +175,29 @@ def _detect_base_branch(spec_dir: Path, project_dir: Path) -> str:
 
 
 # Directory containing prompt files
-# prompts/ is a sibling directory of prompts_pkg/, so go up one level first
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+# Prompts have been moved to apps/desktop/prompts/ (TypeScript-first architecture)
+def _resolve_prompts_dir() -> Path:
+    """Resolve the prompts directory with fallbacks for dev/prod."""
+    # From __file__ (prompts_pkg/prompts.py):
+    # .parent.parent = apps/backend
+    # .parent.parent.parent = apps/
+    # .parent.parent.parent.parent = project root
+    backend_dir = Path(__file__).parent.parent  # apps/backend
+    project_root = backend_dir.parent.parent  # project root (up from apps/)
+
+    candidates = [
+        project_root / "apps" / "desktop" / "prompts",  # Primary: TypeScript architecture
+        project_root / "apps" / "backend" / "prompts",  # Fallback: old location
+    ]
+
+    for candidate in candidates:
+        if (candidate / "planner.md").exists():
+            return candidate
+
+    # Return primary path even if not found - error will surface on use
+    return candidates[0]
+
+PROMPTS_DIR = _resolve_prompts_dir()
 
 
 def get_planner_prompt(spec_dir: Path) -> str:

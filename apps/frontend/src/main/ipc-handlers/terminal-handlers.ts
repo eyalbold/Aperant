@@ -756,14 +756,93 @@ export function initializeUsageMonitorForwarding(mainWindow: BrowserWindow, agen
   });
 
   // Budget exhausted: no account to switch to — stop all running agents
+  // Capture task contexts before killing so they can be resumed on recovery.
+  type BudgetStuckContext = ReturnType<NonNullable<typeof agentManager>['getRunningTaskContexts']>[number];
+  const budgetStuckTasks: BudgetStuckContext[] = [];
+
+  // Seed from persisted state: tasks marked budget_stuck before this process started
+  // (e.g. app restarted while budget was still exhausted).
+  for (const project of projectStore.getProjects()) {
+    for (const task of projectStore.getTasks(project.id)) {
+      if (task.reviewReason === 'budget_stuck') {
+        budgetStuckTasks.push({
+          taskId: task.id,
+          projectPath: project.path,
+          specId: task.specId,
+          options: { parallel: false, workers: 1, baseBranch: task.metadata?.baseBranch, useWorktree: task.metadata?.useWorktree, useLocalBranch: task.metadata?.useLocalBranch },
+          isSpecCreation: false,
+          projectId: project.id,
+        });
+      }
+    }
+  }
+  if (budgetStuckTasks.length > 0) {
+    console.log(`[UsageMonitor] Seeded ${budgetStuckTasks.length} budget-stuck task(s) from persisted state`);
+  }
+
   monitor.on('budget-exhausted', (payload: unknown) => {
     console.warn('[UsageMonitor] Budget exhausted, stopping all running agents:', payload);
+
+    // Snapshot running contexts before kill (context is cleared on exit)
+    const runningContexts = agentManager?.getRunningTaskContexts() ?? [];
+    budgetStuckTasks.push(...runningContexts);
+
     agentManager?.killAll().catch((err: unknown) => {
       console.error('[UsageMonitor] Failed to kill agents after budget exhaustion:', err);
     });
+
+    // Mark each killed task as budget_stuck in the renderer
+    for (const ctx of runningContexts) {
+      mainWindow.webContents.send(
+        IPC_CHANNELS.TASK_STATUS_CHANGE,
+        ctx.taskId,
+        'human_review',
+        ctx.projectId,
+        'budget_stuck'
+      );
+    }
+
     mainWindow.webContents.send(IPC_CHANNELS.PROACTIVE_SWAP_NOTIFICATION, {
       type: 'budget_exhausted',
       ...(payload as object)
     });
+  });
+
+  // Budget recovered: restart tasks that were stopped due to budget exhaustion
+  monitor.on('budget-available-again', () => {
+    if (budgetStuckTasks.length === 0) return;
+
+    const tasksToResume = budgetStuckTasks.splice(0);
+    console.log(`[UsageMonitor] Budget recovered — resuming ${tasksToResume.length} budget-stuck task(s)`);
+
+    for (const ctx of tasksToResume) {
+      console.log(`[UsageMonitor] Resuming budget-stuck task: ${ctx.taskId}`);
+      mainWindow.webContents.send(
+        IPC_CHANNELS.TASK_STATUS_CHANGE,
+        ctx.taskId,
+        'in_progress',
+        ctx.projectId
+      );
+
+      if (ctx.isSpecCreation) {
+        agentManager?.startSpecCreation(
+          ctx.taskId,
+          ctx.projectPath,
+          ctx.taskDescription ?? '',
+          ctx.specDir,
+          ctx.metadata,
+          ctx.baseBranch,
+          ctx.projectId
+        );
+      } else {
+        agentManager?.startTaskExecution(
+          ctx.taskId,
+          ctx.projectPath,
+          ctx.specId,
+          ctx.options,
+          ctx.projectId
+        );
+      }
+    }
   });
 }

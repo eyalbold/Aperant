@@ -39,7 +39,8 @@
     "hasErrors": "Has Errors",
     "qaIssues": "QA Issues",
     "approvePlan": "Approve Plan",
-    "stopped": "Stopped"
+    "stopped": "Stopped",
+    "budgetStuck": "Budget Limit — Auto-resuming"
   },
   "tooltips": {
     "archiveTask": "Archive task",

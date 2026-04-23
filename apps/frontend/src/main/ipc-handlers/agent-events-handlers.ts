@@ -57,6 +57,14 @@ export function registerAgenteventsHandlers(
     safeSendToRenderer(getMainWindow, IPC_CHANNELS.TASK_ERROR, taskId, error, projectId);
   });
 
+  agentManager.on("budget-refused", (taskId: string, projectId?: string) => {
+    if (!projectId) {
+      const { project } = findTaskAndProject(taskId);
+      projectId = project?.id;
+    }
+    safeSendToRenderer(getMainWindow, IPC_CHANNELS.TASK_STATUS_CHANGE, taskId, 'human_review', projectId, 'budget_stuck');
+  });
+
   // Handle SDK rate limit events from agent manager
   agentManager.on("sdk-rate-limit", (rateLimitInfo: SDKRateLimitInfo) => {
     safeSendToRenderer(getMainWindow, IPC_CHANNELS.CLAUDE_SDK_RATE_LIMIT, rateLimitInfo);

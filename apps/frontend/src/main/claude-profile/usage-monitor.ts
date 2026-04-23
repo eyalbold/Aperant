@@ -219,6 +219,9 @@ export class UsageMonitor extends EventEmitter {
   // These profiles have permanent auth failures that require manual re-auth
   private needsReauthProfiles: Set<string> = new Set();
 
+  // Track profiles whose budget was exceeded — used to detect recovery (exceeded → ok)
+  private budgetExceededProfiles: Set<string> = new Set();
+
   // Cache for all profiles' usage data
   // Map<profileId, { usage: ProfileUsageSummary, fetchedAt: number }>
   private allProfilesUsageCache: Map<string, { usage: ProfileUsageSummary; fetchedAt: number }> = new Map();
@@ -986,6 +989,8 @@ export class UsageMonitor extends EventEmitter {
             noExtraUsage: settings.noExtraUsage
           });
 
+          this.budgetExceededProfiles.add(profileId);
+
           // Attempt proactive swap; pass stopIfExhausted=true when a budget policy is active
           // so that running agents are killed if no alternative account is available.
           await this.performProactiveSwap(
@@ -999,6 +1004,13 @@ export class UsageMonitor extends EventEmitter {
             sessionPercent: usage.sessionPercent,
             weekPercent: usage.weeklyPercent
           });
+
+          // Detect budget recovery: was over limit, now it's not
+          if (hasBudgetPolicy && this.budgetExceededProfiles.has(profileId)) {
+            this.budgetExceededProfiles.delete(profileId);
+            console.log(`[UsageMonitor] Budget recovered for profile "${profileId}" — emitting budget-available-again`);
+            this.emit('budget-available-again', { profileId });
+          }
         }
       } else {
         this.debugLog('[UsageMonitor:TRACE] Skipping proactive swap for API profile (only supported for OAuth profiles)');

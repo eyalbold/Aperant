@@ -436,7 +436,7 @@ export const TaskCard = memo(function TaskCard({
                  )
              )}
             {/* Review reason badge - explains why task needs human review */}
-            {reviewReasonInfo && (!isStuck || task.reviewReason === 'budget_stuck') && !isIncomplete && (
+            {reviewReasonInfo && (!isStuck || task.reviewReason === 'budget_stuck') && (!isIncomplete || task.reviewReason === 'budget_stuck') && (
               <Badge
                 variant={reviewReasonInfo.variant}
                 className="text-[10px] px-1.5 py-0.5"

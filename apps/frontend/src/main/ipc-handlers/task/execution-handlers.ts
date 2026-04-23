@@ -844,6 +844,7 @@ export function registerTaskExecutionHandlers(
 
           // Notify renderer about status change
           if (mainWindow) {
+            console.log(`[TaskState] ${taskId} -> status=in_progress reviewReason=none projectId=${project.id} (execution-handlers)`);
             mainWindow.webContents.send(
               IPC_CHANNELS.TASK_STATUS_CHANGE,
               taskId,
@@ -1329,6 +1330,7 @@ export function registerTaskExecutionHandlers(
         // Notify renderer of status change
         const mainWindow = getMainWindow();
         if (mainWindow) {
+          console.log(`[TaskState] ${taskId} -> status=${newStatus} reviewReason=none projectId=${project.id} (recovery)`);
           mainWindow.webContents.send(
             IPC_CHANNELS.TASK_STATUS_CHANGE,
             taskId,

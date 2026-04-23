@@ -1191,7 +1191,8 @@ export function isIncompleteHumanReview(task: Task): boolean {
 
   // JSON error tasks are intentionally in human_review with no subtasks - not incomplete
   // plan_review tasks are waiting for human approval before coding - not incomplete
-  if (task.reviewReason === 'errors' || task.reviewReason === 'stopped' || task.reviewReason === 'plan_review') return false;
+  // budget_stuck tasks were blocked before planning even started - not incomplete
+  if (task.reviewReason === 'errors' || task.reviewReason === 'stopped' || task.reviewReason === 'plan_review' || task.reviewReason === 'budget_stuck') return false;
 
   // If no subtasks defined, task hasn't been planned yet (shouldn't be in human_review)
   if (!task.subtasks || task.subtasks.length === 0) return true;

@@ -338,7 +338,7 @@ export class TaskStateManager {
       console.warn(`[TaskStateManager] emitStatus: No main window, cannot emit status ${status} for ${taskId}`);
       return;
     }
-    console.debug(`[TaskStateManager] emitStatus: Sending TASK_STATUS_CHANGE for ${taskId}:`, { status, reviewReason, projectId });
+    console.log(`[TaskState] ${taskId} -> status=${status} reviewReason=${reviewReason ?? 'none'} projectId=${projectId ?? 'none'}`);
     safeSendToRenderer(
       this.getMainWindow,
       IPC_CHANNELS.TASK_STATUS_CHANGE,

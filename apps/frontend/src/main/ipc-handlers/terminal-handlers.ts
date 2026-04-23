@@ -13,6 +13,27 @@ import { debugLog, } from '../../shared/utils/debug-logger';
 import { migrateSession } from '../claude-profile/session-utils';
 import { createProfileDirectory } from '../claude-profile/profile-utils';
 import { isValidConfigDir } from '../utils/config-path-validator';
+import path from 'path';
+import { existsSync } from 'fs';
+import { AUTO_BUILD_PATHS, getSpecsDir } from '../../shared/constants';
+import { persistPlanStatusAndReasonSync, getPlanPath } from './task/plan-file-utils';
+import { findTaskWorktree } from '../worktree-paths';
+
+function persistBudgetStuck(projectId: string, taskId: string): void {
+  const project = projectStore.getProjects().find(p => p.id === projectId);
+  if (!project) return;
+  const task = projectStore.getTasks(projectId).find(t => t.id === taskId);
+  if (!task) return;
+  const mainPlanPath = getPlanPath(project, task);
+  persistPlanStatusAndReasonSync(mainPlanPath, 'human_review', 'budget_stuck', project.id);
+  const worktreePath = findTaskWorktree(project.path, task.specId);
+  if (worktreePath) {
+    const worktreePlanPath = path.join(worktreePath, getSpecsDir(project.autoBuildPath), task.specId, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
+    if (existsSync(worktreePlanPath)) {
+      persistPlanStatusAndReasonSync(worktreePlanPath, 'human_review', 'budget_stuck', project.id);
+    }
+  }
+}
 
 
 /**
@@ -762,8 +783,11 @@ export function initializeUsageMonitorForwarding(mainWindow: BrowserWindow, agen
 
   // Seed from persisted state: tasks marked budget_stuck before this process started
   // (e.g. app restarted while budget was still exhausted).
+  let seedScanned = 0;
   for (const project of projectStore.getProjects()) {
-    for (const task of projectStore.getTasks(project.id)) {
+    const tasks = projectStore.getTasks(project.id);
+    seedScanned += tasks.length;
+    for (const task of tasks) {
       if (task.reviewReason === 'budget_stuck') {
         budgetStuckTasks.push({
           taskId: task.id,
@@ -776,23 +800,28 @@ export function initializeUsageMonitorForwarding(mainWindow: BrowserWindow, agen
       }
     }
   }
-  if (budgetStuckTasks.length > 0) {
-    console.log(`[UsageMonitor] Seeded ${budgetStuckTasks.length} budget-stuck task(s) from persisted state`);
-  }
+  console.log(`[BudgetStuck] Seed scan: ${seedScanned} task(s) across ${projectStore.getProjects().length} project(s); ${budgetStuckTasks.length} had reviewReason=budget_stuck`);
 
   monitor.on('budget-exhausted', (payload: unknown) => {
     console.warn('[UsageMonitor] Budget exhausted, stopping all running agents:', payload);
 
     // Snapshot running contexts before kill (context is cleared on exit)
     const runningContexts = agentManager?.getRunningTaskContexts() ?? [];
+    console.log(`[BudgetStuck] budget-exhausted fired. running contexts=${runningContexts.length}`,
+      runningContexts.map(c => ({ taskId: c.taskId, projectId: c.projectId, isSpecCreation: c.isSpecCreation })));
     budgetStuckTasks.push(...runningContexts);
+
+    // Slow down polling so we don't spam the usage endpoint when exhausted (causes 429s)
+    monitor.setExhaustedBackoff(true);
 
     agentManager?.killAll().catch((err: unknown) => {
       console.error('[UsageMonitor] Failed to kill agents after budget exhaustion:', err);
     });
 
-    // Mark each killed task as budget_stuck in the renderer
+    // Mark each killed task as budget_stuck (persist + notify renderer)
     for (const ctx of runningContexts) {
+      console.log(`[BudgetStuck] -> TASK_STATUS_CHANGE taskId=${ctx.taskId} projectId=${ctx.projectId} reason=budget_stuck`);
+      if (ctx.projectId) persistBudgetStuck(ctx.projectId, ctx.taskId);
       mainWindow.webContents.send(
         IPC_CHANNELS.TASK_STATUS_CHANGE,
         ctx.taskId,
@@ -802,14 +831,74 @@ export function initializeUsageMonitorForwarding(mainWindow: BrowserWindow, agen
       );
     }
 
+    // Optional zombie sweep: flag in_progress tasks with no active agent.
+    // Gated behind ZOOMBIE_SWEEP=TRUE because it can mask real state-machine bugs.
+    if (process.env.ZOOMBIE_SWEEP === 'TRUE') {
+      const runningIds = new Set(runningContexts.map(c => c.taskId));
+      let zombieCount = 0;
+      for (const project of projectStore.getProjects()) {
+        for (const task of projectStore.getTasks(project.id)) {
+          if (task.status === 'in_progress' && !runningIds.has(task.id) && !task.reviewReason) {
+            zombieCount++;
+            console.log(`[BudgetStuck] zombie flag: taskId=${task.id} projectId=${project.id}`);
+            persistBudgetStuck(project.id, task.id);
+            mainWindow.webContents.send(
+              IPC_CHANNELS.TASK_STATUS_CHANGE,
+              task.id,
+              'human_review',
+              project.id,
+              'budget_stuck'
+            );
+          }
+        }
+      }
+      if (zombieCount > 0) console.log(`[BudgetStuck] flagged ${zombieCount} zombie in_progress task(s)`);
+    }
+
     mainWindow.webContents.send(IPC_CHANNELS.PROACTIVE_SWAP_NOTIFICATION, {
       type: 'budget_exhausted',
       ...(payload as object)
     });
   });
 
+  // When a pre-flight budget check blocks a recovery attempt, re-queue the task
+  // so it will be retried on the next budget-available-again event.
+  agentManager?.on('budget-refused', (taskId: string, projectId?: string) => {
+    const alreadyQueued = budgetStuckTasks.some(t => t.taskId === taskId);
+    if (alreadyQueued) return;
+
+    // Re-seed from project store since the ctx may have been spliced out already
+    for (const project of projectStore.getProjects()) {
+      if (projectId && project.id !== projectId) continue;
+      for (const task of projectStore.getTasks(project.id)) {
+        if (task.id === taskId) {
+          budgetStuckTasks.push({
+            taskId: task.id,
+            projectPath: project.path,
+            specId: task.specId,
+            options: {
+              parallel: false,
+              workers: 1,
+              baseBranch: task.metadata?.baseBranch,
+              useWorktree: task.metadata?.useWorktree,
+              useLocalBranch: task.metadata?.useLocalBranch,
+            },
+            isSpecCreation: false,
+            projectId: project.id,
+          });
+          console.log(`[BudgetStuck] Re-queued budget-refused task ${taskId} for next recovery attempt`);
+        }
+      }
+    }
+  });
+
   // Budget recovered: restart tasks that were stopped due to budget exhaustion
   monitor.on('budget-available-again', () => {
+    console.log(`[BudgetStuck] budget-available-again fired. queued=${budgetStuckTasks.length}`);
+
+    // Clear the polling backoff so usage checks resume at normal cadence
+    monitor.setExhaustedBackoff(false);
+
     if (budgetStuckTasks.length === 0) return;
 
     const tasksToResume = budgetStuckTasks.splice(0);

@@ -374,6 +374,20 @@ export class AgentManager extends EventEmitter {
       return;
     }
 
+    // Pre-flight budget check — mirrors the check in startSpecCreation.
+    try {
+      const activeProfile = profileManager.getActiveProfile();
+      const budgetCheck = UsageMonitor.getInstance().isBudgetExceeded(activeProfile.id);
+      console.log(`[BudgetStuck] startTaskExecution pre-flight: taskId=${taskId} profile=${activeProfile.id} exceeded=${budgetCheck.exceeded}`);
+      if (budgetCheck.exceeded) {
+        console.warn(`[AgentManager] Refusing to start task "${taskId}": budget limit already exceeded — ${budgetCheck.reason}`);
+        this.emit('budget-refused', taskId, projectId);
+        return;
+      }
+    } catch {
+      // getActiveProfile can throw if no profiles exist; auth check above already handles that case.
+    }
+
     // Ensure Python environment is ready before spawning process (prevents exit code 127 race condition)
     const pythonStatus = await this.processManager.ensurePythonEnvReady('AgentManager');
     if (!pythonStatus.ready) {

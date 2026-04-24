@@ -2,21 +2,23 @@
 # docker-start.sh
 # Reads the Claude OAuth token from ~/.claude/.credentials.json, then launches Auto-Claude via Docker Compose.
 # Use --reauth to run `claude /login` and refresh the token first.
-# Usage: ./scripts/docker-start.sh [--project-path <path>] [--build] [--reauth] [--dont-remove]
+# Usage: ./scripts/docker-start.sh [--project-path <path>] [--extra-mount-path <path>] [--build] [--reauth] [--dont-remove]
 
 set -euo pipefail
 
 PROJECT_PATH=""
+EXTRA_MOUNT_PATH=""
 BUILD_FLAG=""
 REAUTH=false
 DONT_REMOVE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --project-path) PROJECT_PATH="$2"; shift 2 ;;
-    --build)        BUILD_FLAG="--build"; shift ;;
-    --reauth)       REAUTH=true; shift ;;
-    --dont-remove)  DONT_REMOVE=true; shift ;;
+    --project-path)     PROJECT_PATH="$2"; shift 2 ;;
+    --extra-mount-path) EXTRA_MOUNT_PATH="$2"; shift 2 ;;
+    --build)            BUILD_FLAG="--build"; shift ;;
+    --reauth)           REAUTH=true; shift ;;
+    --dont-remove)      DONT_REMOVE=true; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -94,6 +96,9 @@ echo "[$STEP] Starting Docker..."
 
 if [[ -n "$PROJECT_PATH" ]]; then
   export PROJECT_PATH
+fi
+if [[ -n "$EXTRA_MOUNT_PATH" ]]; then
+  export EXTRA_MOUNT_PATH
 fi
 
 # ── Validate GH_TOKEN ────────────────────────────────────────────────────────

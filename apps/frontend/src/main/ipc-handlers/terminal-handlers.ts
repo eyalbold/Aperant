@@ -802,6 +802,21 @@ export function initializeUsageMonitorForwarding(mainWindow: BrowserWindow, agen
   }
   console.log(`[BudgetStuck] Seed scan: ${seedScanned} task(s) across ${projectStore.getProjects().length} project(s); ${budgetStuckTasks.length} had reviewReason=budget_stuck`);
 
+  // If there are persisted budget_stuck tasks, seed budgetExceededProfiles so recovery
+  // detection works even when budget-exhausted never fired this session (e.g. after restart).
+  if (budgetStuckTasks.length > 0) {
+    try {
+      const activeProfileId = getClaudeProfileManager()?.getActiveProfile?.()?.id;
+      if (activeProfileId) {
+        monitor.seedExceededProfile(activeProfileId);
+      } else {
+        console.warn('[BudgetStuck] Could not resolve active profile to seed budgetExceededProfiles');
+      }
+    } catch {
+      console.warn('[BudgetStuck] Failed to seed budgetExceededProfiles from persisted state');
+    }
+  }
+
   monitor.on('budget-exhausted', (payload: unknown) => {
     console.warn('[UsageMonitor] Budget exhausted, stopping all running agents:', payload);
 

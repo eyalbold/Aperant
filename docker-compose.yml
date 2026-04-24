@@ -10,6 +10,7 @@ services:
       - autoclaude-config:/root/.config/auto-claude-ui  # Electron app settings, profiles, projects
       - autoclaude-profiles:/root/.claude-profiles  # Per-profile Claude config dirs (credentials)
       - "${PROJECT_PATH:-./}:/workspace"            # Your project directory (set PROJECT_PATH in docker/.env)
+      - "${EXTRA_MOUNT_PATH:-./}:/extra-workspace"   # Optional extra mount (set via --extra-mount-path or EXTRA_MOUNT_PATH)
       - autoclaude-usr:/usr                           # Persist system packages across rebuilds
       - autoclaude-etc:/etc                           # Persist system config across rebuilds
     env_file:
@@ -23,6 +24,12 @@ services:
       - GIT_USER_EMAIL
     # Electron/Chromium needs extra shared memory for GPU buffers
     shm_size: "256m"
+    # Hard memory ceiling for the container. Electron main + renderer + multiple
+    # agent PTYs can easily push past 2 GiB; without an explicit limit the
+    # container inherits the Docker Desktop VM's total memory, and when the VM
+    # is tight the renderer gets OOM-killed (producing "Render frame was
+    # disposed" cascades in the main process logs).
+    mem_limit: "4g"
     restart: unless-stopped
     tty: true
     stdin_open: true

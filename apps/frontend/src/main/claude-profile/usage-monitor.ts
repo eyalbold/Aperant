@@ -1229,6 +1229,11 @@ export class UsageMonitor extends EventEmitter {
    * polling to 5-minute intervals so we don't spam the usage endpoint.
    * Call with `engage=false` on recovery so normal polling resumes immediately.
    */
+  seedExceededProfile(profileId: string): void {
+    this.budgetExceededProfiles.add(profileId);
+    console.log(`[BudgetStuck] Seeded budgetExceededProfiles with profile="${profileId}" from persisted state`);
+  }
+
   setExhaustedBackoff(engage: boolean): void {
     this.budgetExhaustedBackoffUntil = engage
       ? Date.now() + UsageMonitor.BUDGET_EXHAUSTED_BACKOFF_MS

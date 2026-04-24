@@ -15,7 +15,7 @@ Write-Host "================================================="
 Write-Host "  Auto-Claude Docker Launcher"
 Write-Host "================================================="
 Write-Host ""
-if (-not $env:CLAUDE_CODE_OAUTH_TOKEN) {
+if (-not $env:CLAUDE_CODE_OAUTH_TOKEN -or $Reauth) {
 
 # ── Step 1: Read token from ~/.claude/.credentials.json ───────────────────────
 $credsPath = Join-Path $env:USERPROFILE ".claude" ".credentials.json"

@@ -184,16 +184,24 @@ This allows safe development without affecting the main branch.
 **CRITICAL RULES:**
 * **NEVER** `cd` to the forbidden parent path
 * **NEVER** use `cd ../..` to escape the worktree
+* **NEVER** read/write/`cp`/`git`-anything inside the forbidden path — not even `ls`
 * **STAY** within your working directory at all times
 * **ALL** file operations use paths relative to your current location
 
 ### Why This Matters
 
 Escaping the worktree causes:
-* ❌ Git commits going to the wrong branch
+* ❌ Git commits going to the wrong branch (the parent is checked out on `master`/`main`)
 * ❌ Files created/modified in the wrong location
 * ❌ Breaking worktree isolation guarantees
 * ❌ Losing the safety of isolated development
+
+### The #1 Failure Mode (DO NOT REPEAT)
+
+If you notice that a file exists in your worktree but NOT in the parent project, **that is expected**.
+The parent is on a different branch and does not have your work. Do NOT "fix" this by copying the
+file into the parent and committing it there — that commit lands on `master`, not on your spec
+branch, silently polluting trunk. Commits inside this worktree are how your work gets saved.
 
 ### How to Stay Safe
 

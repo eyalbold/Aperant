@@ -35,7 +35,9 @@ if [ -n "$GH_TOKEN" ]; then
   # Rewrite github.com HTTPS URLs to embed the token inline, so git push/pull
   # works without any credential prompt or keychain.
   git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-  echo "  ✓  Git HTTPS auth configured via GH_TOKEN"
+  git config --global --add url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "git@github.com:"
+  git config --global --add url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+  echo "  ✓  Git HTTPS auth configured via GH_TOKEN (HTTPS + SSH remotes rewritten)"
   echo ""
 fi
 

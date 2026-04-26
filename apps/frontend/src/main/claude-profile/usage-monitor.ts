@@ -219,6 +219,14 @@ export class UsageMonitor extends EventEmitter {
   // These profiles have permanent auth failures that require manual re-auth
   private needsReauthProfiles: Set<string> = new Set();
 
+  // Track profiles whose budget was exceeded — used to detect recovery (exceeded → ok)
+  private budgetExceededProfiles: Set<string> = new Set();
+
+  // Backoff: when budget is exhausted with no running agents, slow down polling
+  // to avoid spamming the usage endpoint and getting 429s.
+  private budgetExhaustedBackoffUntil = 0;
+  private static BUDGET_EXHAUSTED_BACKOFF_MS = 5 * 60 * 1000; // 5 minutes
+
   // Cache for all profiles' usage data
   // Map<profileId, { usage: ProfileUsageSummary, fetchedAt: number }>
   private allProfilesUsageCache: Map<string, { usage: ProfileUsageSummary; fetchedAt: number }> = new Map();
@@ -434,20 +442,23 @@ export class UsageMonitor extends EventEmitter {
       const profile = settings.profiles[i];
       const cached = this.allProfilesUsageCache.get(profile.id);
 
+      // Active profile always uses the freshest data from the last poll — must run
+      // BEFORE the TTL cache check so that isBudgetExceeded and budget-available-again
+      // are always in sync. (Previously the TTL check could skip this update and leave
+      // allProfilesUsageCache stale while this.currentUsage had already recovered.)
+      if (profile.id === activeProfileId && this.currentUsage) {
+        const summary = this.buildProfileUsageSummary(profile, this.currentUsage);
+        profileResults[i] = summary;
+        this.allProfilesUsageCache.set(profile.id, { usage: summary, fetchedAt: now });
+        continue;
+      }
+
       // Use cached data if fresh (within TTL) and not force refreshing
       if (!forceRefresh && cached && (now - cached.fetchedAt) < UsageMonitor.PROFILE_USAGE_CACHE_TTL_MS) {
         profileResults[i] = {
           ...cached.usage,
           isActive: profile.id === activeProfileId
         };
-        continue;
-      }
-
-      // For active profile, use the current detailed usage (always fresh from last poll)
-      if (profile.id === activeProfileId && this.currentUsage) {
-        const summary = this.buildProfileUsageSummary(profile, this.currentUsage);
-        profileResults[i] = summary;
-        this.allProfilesUsageCache.set(profile.id, { usage: summary, fetchedAt: now });
         continue;
       }
 
@@ -898,6 +909,13 @@ export class UsageMonitor extends EventEmitter {
       return; // Prevent concurrent checks
     }
 
+    // Backoff: when budget was exhausted and no agents are running, skip polling
+    // until the backoff window expires to avoid hammering the usage endpoint (429s).
+    if (this.budgetExhaustedBackoffUntil > Date.now()) {
+      this.debugLog(`[UsageMonitor] Skipping usage poll — budget-exhausted backoff until ${new Date(this.budgetExhaustedBackoffUntil).toISOString()}`);
+      return;
+    }
+
     this.isChecking = true;
     let profileId: string | undefined;
     let isAPIProfile = false;
@@ -986,6 +1004,8 @@ export class UsageMonitor extends EventEmitter {
             noExtraUsage: settings.noExtraUsage
           });
 
+          this.budgetExceededProfiles.add(profileId);
+
           // Attempt proactive swap; pass stopIfExhausted=true when a budget policy is active
           // so that running agents are killed if no alternative account is available.
           await this.performProactiveSwap(
@@ -999,6 +1019,16 @@ export class UsageMonitor extends EventEmitter {
             sessionPercent: usage.sessionPercent,
             weekPercent: usage.weeklyPercent
           });
+
+          // Detect budget recovery: was over limit, now it's not
+          const wasExceeded = this.budgetExceededProfiles.has(profileId);
+          if (hasBudgetPolicy && wasExceeded) {
+            this.budgetExceededProfiles.delete(profileId);
+            console.log(`[BudgetStuck] Budget recovered for profile "${profileId}" — emitting budget-available-again`);
+            this.emit('budget-available-again', { profileId });
+          } else if (wasExceeded || hasBudgetPolicy) {
+            console.log(`[BudgetStuck] Recovery skipped: profile=${profileId} hasBudgetPolicy=${hasBudgetPolicy} wasExceeded=${wasExceeded}`);
+          }
         }
       } else {
         this.debugLog('[UsageMonitor:TRACE] Skipping proactive swap for API profile (only supported for OAuth profiles)');
@@ -1191,6 +1221,28 @@ export class UsageMonitor extends EventEmitter {
       exceeded: true,
       reason: `${limitLabel} usage at ${limitPercent.toFixed(1)}% already exceeds ${capLabel}`
     };
+  }
+
+  /**
+   * Engage/clear the budget-exhausted polling backoff.
+   * Call with `engage=true` when budget is exhausted (no agents running) to slow
+   * polling to 5-minute intervals so we don't spam the usage endpoint.
+   * Call with `engage=false` on recovery so normal polling resumes immediately.
+   */
+  seedExceededProfile(profileId: string): void {
+    this.budgetExceededProfiles.add(profileId);
+    console.log(`[BudgetStuck] Seeded budgetExceededProfiles with profile="${profileId}" from persisted state`);
+  }
+
+  setExhaustedBackoff(engage: boolean): void {
+    this.budgetExhaustedBackoffUntil = engage
+      ? Date.now() + UsageMonitor.BUDGET_EXHAUSTED_BACKOFF_MS
+      : 0;
+    if (engage) {
+      console.log(`[UsageMonitor] Budget-exhausted backoff engaged — next poll after ${new Date(this.budgetExhaustedBackoffUntil).toISOString()}`);
+    } else {
+      console.log('[UsageMonitor] Budget-exhausted backoff cleared — resuming normal polling');
+    }
   }
 
   /**

@@ -84,12 +84,25 @@ You are in an **ISOLATED GIT WORKTREE** - a complete copy of the project for saf
 ### Rules:
 1. **NEVER** use `cd {parent_project_path}` or any path starting with `{parent_project_path}`
 2. **NEVER** use absolute paths that reference the parent project
-3. **ALL** project files exist HERE via relative paths
+3. **NEVER** read, write, copy, or `git`-anything inside `{parent_project_path}` — not even `ls`
+4. **ALL** project files exist HERE via relative paths
 
 ### Why This Matters:
-- Git commits made in the parent project go to the WRONG branch
-- File changes in the parent project escape isolation
-- This defeats the entire purpose of safe, isolated development
+- The parent at `{parent_project_path}` is a SEPARATE worktree on a DIFFERENT branch (usually `master`/`main`)
+- Git commits made there go to that other branch, NOT your spec branch — silently corrupting trunk
+- File changes there escape isolation and are invisible to your verification
+
+### The #1 Failure Mode (DO NOT REPEAT):
+You may notice that a file you just wrote here does NOT exist in `{parent_project_path}`.
+**THAT IS EXPECTED AND CORRECT.** The parent is on a different branch and does not have your work.
+
+Do **NOT** "fix" this by:
+- ❌ `cp ./src/foo.py {parent_project_path}/src/foo.py` (writing into the parent)
+- ❌ `cd {parent_project_path} && git add -A && git commit ...` (commits land on master)
+- ❌ Any variation of "copy my changes to the parent so they're saved"
+
+Your work is already saved — by `git commit` **inside this worktree**. The parent will catch up
+when the user merges your branch. Treat the parent as if it does not exist.
 
 ### Correct Usage:
 ```bash
@@ -100,6 +113,8 @@ You are in an **ISOLATED GIT WORKTREE** - a complete copy of the project for saf
 # ❌ WRONG - These escape isolation!
 cd {parent_project_path}
 {parent_project_path}/prod/src/file.ts
+ls {parent_project_path}/...        # Don't even look
+cp ./x {parent_project_path}/x      # Don't sync to parent
 ```
 
 If you see absolute paths in spec.md or context.json that reference `{parent_project_path}`,

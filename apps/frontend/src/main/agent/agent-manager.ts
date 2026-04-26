@@ -253,7 +253,7 @@ export class AgentManager extends EventEmitter {
       const budgetCheck = UsageMonitor.getInstance().isBudgetExceeded(activeProfile.id);
       if (budgetCheck.exceeded) {
         console.warn(`[AgentManager] Refusing to start task "${taskId}": budget limit already exceeded — ${budgetCheck.reason}`);
-        this.emit('error', taskId, `Budget limit reached: ${budgetCheck.reason}. Adjust the budget cap in Settings > Accounts to continue.`);
+        this.emit('budget-refused', taskId, projectId);
         return;
       }
     } catch {
@@ -372,6 +372,20 @@ export class AgentManager extends EventEmitter {
     if (!profileManager.hasValidAuth()) {
       this.emit('error', taskId, 'Claude authentication required. Please authenticate in Settings > Claude Profiles before starting tasks.');
       return;
+    }
+
+    // Pre-flight budget check — mirrors the check in startSpecCreation.
+    try {
+      const activeProfile = profileManager.getActiveProfile();
+      const budgetCheck = UsageMonitor.getInstance().isBudgetExceeded(activeProfile.id);
+      console.log(`[BudgetStuck] startTaskExecution pre-flight: taskId=${taskId} profile=${activeProfile.id} exceeded=${budgetCheck.exceeded}`);
+      if (budgetCheck.exceeded) {
+        console.warn(`[AgentManager] Refusing to start task "${taskId}": budget limit already exceeded — ${budgetCheck.reason}`);
+        this.emit('budget-refused', taskId, projectId);
+        return;
+      }
+    } catch {
+      // getActiveProfile can throw if no profiles exist; auth check above already handles that case.
     }
 
     // Ensure Python environment is ready before spawning process (prevents exit code 127 race condition)
@@ -690,6 +704,36 @@ export class AgentManager extends EventEmitter {
   // ============================================
   // Queue Routing Methods (Rate Limit Recovery)
   // ============================================
+
+  /**
+   * Returns a snapshot of all currently executing task contexts.
+   * Used by budget-exhaustion handling to capture state before killAll.
+   */
+  getRunningTaskContexts(): Array<{
+    taskId: string;
+    projectPath: string;
+    specId: string;
+    options: TaskExecutionOptions;
+    isSpecCreation?: boolean;
+    taskDescription?: string;
+    specDir?: string;
+    metadata?: SpecCreationMetadata;
+    baseBranch?: string;
+    projectId?: string;
+  }> {
+    return Array.from(this.taskExecutionContext.entries()).map(([taskId, ctx]) => ({
+      taskId,
+      projectPath: ctx.projectPath,
+      specId: ctx.specId,
+      options: ctx.options,
+      isSpecCreation: ctx.isSpecCreation,
+      taskDescription: ctx.taskDescription,
+      specDir: ctx.specDir,
+      metadata: ctx.metadata,
+      baseBranch: ctx.baseBranch,
+      projectId: ctx.projectId,
+    }));
+  }
 
   /**
    * Get running tasks grouped by profile

@@ -35,7 +35,9 @@ if [ -n "$GH_TOKEN" ]; then
   # Rewrite github.com HTTPS URLs to embed the token inline, so git push/pull
   # works without any credential prompt or keychain.
   git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-  echo "  ✓  Git HTTPS auth configured via GH_TOKEN"
+  git config --global --add url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "git@github.com:"
+  git config --global --add url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+  echo "  ✓  Git HTTPS auth configured via GH_TOKEN (HTTPS + SSH remotes rewritten)"
   echo ""
 fi
 
@@ -53,6 +55,11 @@ if [ -n "$GIT_USER_NAME" ] || [ -n "$GIT_USER_EMAIL" ]; then
 fi
 
 # ── 1. Virtual display ────────────────────────────────────────────────────────
+# Clean up stale X lock/socket from a prior container run. Without this, a
+# restart finds the old /tmp/.X99-lock still in place and Xvfb bails out with
+# "Server is already active for display 99", which cascades into x11vnc failing
+# and the container entering a restart loop.
+rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null || true
 Xvfb :99 -screen 0 "$RESOLUTION" -ac +extension GLX +render -noreset &
 XVFB_PID=$!
 echo "[1/3] Virtual display started  (Xvfb :99  ${RESOLUTION})"
@@ -78,4 +85,14 @@ echo ""
 export DISPLAY=:99
 echo "[3/3] Starting Auto-Claude Electron app..."
 cd /app/apps/frontend
-exec /app/node_modules/.bin/electron-vite dev -- --no-sandbox
+# GPU/compositor flags: Xvfb has no real GPU, so Chromium's GPU process can
+# crash the renderer — producing cascades of "Render frame was disposed before
+# WebFrameMain could be accessed" errors. Force software rendering and disable
+# /dev/shm usage (Docker's default /dev/shm is small even with shm_size bumps).
+exec /app/node_modules/.bin/electron-vite dev -- \
+  --no-sandbox \
+  --disable-gpu \
+  --disable-gpu-compositing \
+  --disable-software-rasterizer \
+  --disable-dev-shm-usage \
+  --in-process-gpu

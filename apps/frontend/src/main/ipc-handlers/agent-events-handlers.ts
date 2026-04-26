@@ -57,6 +57,28 @@ export function registerAgenteventsHandlers(
     safeSendToRenderer(getMainWindow, IPC_CHANNELS.TASK_ERROR, taskId, error, projectId);
   });
 
+  agentManager.on("budget-refused", (taskId: string, projectId?: string) => {
+    const { task, project } = findTaskAndProject(taskId);
+    if (!projectId) projectId = project?.id;
+    console.log(`[BudgetStuck] budget-refused received. taskId=${taskId} projectId=${projectId ?? 'UNRESOLVED'}`);
+
+    // Persist to disk so subsequent reads (zombie sweeps, reloads) see budget_stuck
+    if (task && project) {
+      const mainPlanPath = getPlanPath(project, task);
+      persistPlanStatusAndReasonSync(mainPlanPath, 'human_review', 'budget_stuck', project.id);
+      const worktreePath = findTaskWorktree(project.path, task.specId);
+      if (worktreePath) {
+        const worktreePlanPath = path.join(worktreePath, getSpecsDir(project.autoBuildPath), task.specId, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
+        if (existsSync(worktreePlanPath)) {
+          persistPlanStatusAndReasonSync(worktreePlanPath, 'human_review', 'budget_stuck', project.id);
+        }
+      }
+    } else {
+      console.warn(`[BudgetStuck] budget-refused: could not resolve task/project for ${taskId}; state not persisted`);
+    }
+    safeSendToRenderer(getMainWindow, IPC_CHANNELS.TASK_STATUS_CHANGE, taskId, 'human_review', projectId, 'budget_stuck');
+  });
+
   // Handle SDK rate limit events from agent manager
   agentManager.on("sdk-rate-limit", (rateLimitInfo: SDKRateLimitInfo) => {
     safeSendToRenderer(getMainWindow, IPC_CHANNELS.CLAUDE_SDK_RATE_LIMIT, rateLimitInfo);

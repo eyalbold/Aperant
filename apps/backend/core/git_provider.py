@@ -53,9 +53,10 @@ def detect_git_provider(project_dir: str | Path, remote_name: str | None = None)
             hostname = ssh_url_match.group(1)
             return _classify_hostname(hostname)
 
-        # Parse HTTPS/HTTP format: https://host/path or http://host/path
+        # Parse HTTPS/HTTP format: https://[user:pass@]host/path or http://...
+        # Strip optional userinfo (e.g. x-access-token:TOKEN@) before extracting host.
         # Must check before scp-like format to avoid matching "https" as hostname
-        https_match = re.match(r"^https?://([^/]+)/", remote_url)
+        https_match = re.match(r"^https?://(?:[^@]+@)?([^/:]+)", remote_url)
         if https_match:
             hostname = https_match.group(1)
             return _classify_hostname(hostname)

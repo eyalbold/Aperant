@@ -232,6 +232,7 @@ Based on the workflow type and services involved, create the implementation plan
       "subtasks": [
         {
           "id": "subtask-1-1",
+          "title": "Create analytics data models",
           "description": "Create data models for [feature]",
           "service": "backend",
           "files_to_modify": ["src/models/user.py"],
@@ -246,6 +247,7 @@ Based on the workflow type and services involved, create the implementation plan
         },
         {
           "id": "subtask-1-2",
+          "title": "Create analytics API endpoints",
           "description": "Create API endpoints for [feature]",
           "service": "backend",
           "files_to_modify": ["src/routes/api.py"],
@@ -272,6 +274,7 @@ Based on the workflow type and services involved, create the implementation plan
       "subtasks": [
         {
           "id": "subtask-2-1",
+          "title": "Create aggregation Celery task",
           "description": "Create aggregation Celery task",
           "service": "worker",
           "files_to_modify": ["worker/tasks.py"],
@@ -296,6 +299,7 @@ Based on the workflow type and services involved, create the implementation plan
       "subtasks": [
         {
           "id": "subtask-3-1",
+          "title": "Create dashboard component",
           "description": "Create dashboard component",
           "service": "frontend",
           "files_to_modify": [],
@@ -320,6 +324,7 @@ Based on the workflow type and services involved, create the implementation plan
       "subtasks": [
         {
           "id": "subtask-4-1",
+          "title": "End-to-end analytics verification",
           "description": "End-to-end verification of analytics flow",
           "all_services": true,
           "files_to_modify": [],
@@ -358,10 +363,11 @@ Use ONLY these values for the `type` field in phases:
 
 ### Subtask Guidelines
 
-1. **One service per subtask** - Never mix backend and frontend in one subtask
-2. **Small scope** - Each subtask should take 1-3 files max
-3. **Clear verification** - Every subtask must have a way to verify it works
-4. **Explicit dependencies** - Phases block until dependencies complete
+1. **Short titles** - Every subtask MUST have a `"title"` field: a 3-10 word summary (e.g., "Create analytics data models"). Put implementation details in `"description"`.
+2. **One service per subtask** - Never mix backend and frontend in one subtask
+3. **Small scope** - Each subtask typically take 1-3 files max if it is substential change. a rename can span along many files.
+4. **Clear verification** - Every subtask must have a way to verify it works
+5. **Explicit dependencies** - Phases block until dependencies complete
 
 ### Verification Types
 
@@ -385,6 +391,7 @@ Use ONLY these values for the `type` field in phases:
 ```json
 {
   "id": "subtask-investigate-1",
+  "title": "Identify memory leak root cause",
   "description": "Identify root cause of memory leak",
   "expected_output": "Document with: (1) Root cause, (2) Evidence, (3) Proposed fix",
   "files_to_modify": [],
@@ -400,6 +407,7 @@ Use ONLY these values for the `type` field in phases:
 ```json
 {
   "id": "subtask-refactor-1",
+  "title": "Add new auth system",
   "description": "Add new auth system alongside old",
   "files_to_modify": ["src/auth/index.ts"],
   "files_to_create": ["src/auth/new_auth.ts"],

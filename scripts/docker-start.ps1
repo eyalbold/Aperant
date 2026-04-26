@@ -2,10 +2,11 @@
 # docker-start.ps1
 # Reads the Claude OAuth token from ~/.claude/.credentials.json, then launches Auto-Claude via Docker Compose.
 # Use -Reauth to run `claude /login` and refresh the token first.
-# Usage: .\scripts\docker-start.ps1 [-ProjectPath <path>] [-Build] [-Reauth]
+# Usage: .\scripts\docker-start.ps1 [-ProjectPath <path>] [-ExtraMountPath <path>] [-Build] [-Reauth]
 
 param(
     [string]$ProjectPath = "C:/autoproj",
+    [string]$ExtraMountPath = "",
     [switch]$Build,
     [switch]$Reauth,
     [switch]$DontRemove
@@ -15,7 +16,7 @@ Write-Host "================================================="
 Write-Host "  Auto-Claude Docker Launcher"
 Write-Host "================================================="
 Write-Host ""
-if (-not $env:CLAUDE_CODE_OAUTH_TOKEN) {
+if (-not $env:CLAUDE_CODE_OAUTH_TOKEN -or $Reauth) {
 
 # ── Step 1: Read token from ~/.claude/.credentials.json ───────────────────────
 $credsPath = Join-Path $env:USERPROFILE ".claude" ".credentials.json"
@@ -83,16 +84,18 @@ Write-Host "[$( if ($running) {'3/3'} else {'2/2'} )] Starting Docker..."
 if ($ProjectPath -ne "") {
     $env:PROJECT_PATH = $ProjectPath
 }
+if ($ExtraMountPath -ne "") {
+    $env:EXTRA_MOUNT_PATH = $ExtraMountPath
+}
 
 # ── Validate GH_TOKEN ────────────────────────────────────────────────────────
-if (-not $env:GH_TOKEN) {
-    # Try reading from docker/.env
-    $envFile = Join-Path $PSScriptRoot ".." "docker" ".env"
-    if (Test-Path $envFile) {
-        $ghLine = Select-String -Path $envFile -Pattern '^GH_TOKEN=(.+)' | Select-Object -First 1
-        if ($ghLine) {
-            $env:GH_TOKEN = $ghLine.Matches[0].Groups[1].Value.Trim()
-        }
+# Always re-read from docker/.env so an updated token isn't shadowed by a
+# stale value left in the PowerShell session from a previous run.
+$_ghEnvFile = Join-Path $PSScriptRoot ".." "docker" ".env"
+if (Test-Path $_ghEnvFile) {
+    $ghLine = Select-String -Path $_ghEnvFile -Pattern '^GH_TOKEN=(.+)' | Select-Object -First 1
+    if ($ghLine) {
+        $env:GH_TOKEN = $ghLine.Matches[0].Groups[1].Value.Trim()
     }
 }
 
@@ -126,9 +129,11 @@ if ($Build -and -not $DontRemove) {
     Write-Host ""
 }
 
-$composeArgs = @("compose", "up", "-d")
+$envFile = Join-Path $PSScriptRoot ".." "docker" ".env"
+$composeArgs = @("compose", "--env-file", $envFile, "up", "-d")
 if ($Build) { $composeArgs += "--build" }
 
+Write-Host docker @composeArgs 
 docker @composeArgs
 
 Write-Host ""

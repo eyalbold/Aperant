@@ -315,6 +315,8 @@ export const TaskCard = memo(function TaskCard({
         return { label: t('reviewReason.approvePlan'), variant: 'warning' };
       case 'stopped':
         return { label: t('reviewReason.stopped'), variant: 'warning' };
+      case 'budget_stuck':
+        return { label: t('reviewReason.budgetStuck'), variant: 'warning' };
       default:
         return null;
     }
@@ -373,7 +375,7 @@ export const TaskCard = memo(function TaskCard({
         {(task.metadata || isStuck || isIncomplete || hasActiveExecution || reviewReasonInfo) && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {/* Stuck indicator - highest priority */}
-            {isStuck && (
+            {isStuck && task.reviewReason !== 'budget_stuck' && (
               <Badge
                 variant="outline"
                 className="text-[10px] px-1.5 py-0.5 flex items-center gap-1 bg-warning/10 text-warning border-warning/30 badge-priority-urgent"
@@ -434,7 +436,7 @@ export const TaskCard = memo(function TaskCard({
                  )
              )}
             {/* Review reason badge - explains why task needs human review */}
-            {reviewReasonInfo && !isStuck && !isIncomplete && (
+            {reviewReasonInfo && (!isStuck || task.reviewReason === 'budget_stuck') && (!isIncomplete || task.reviewReason === 'budget_stuck') && (
               <Badge
                 variant={reviewReasonInfo.variant}
                 className="text-[10px] px-1.5 py-0.5"

@@ -32,15 +32,16 @@ This is a complete copy of the project created for safe, isolated development.
 
 1. **NEVER navigate to the parent project path** shown in "FORBIDDEN PATH"
    - If you see `cd /path/to/main/project` in your context, DO NOT run it
-   - The parent project is OFF LIMITS
+   - The parent project is OFF LIMITS — do not `ls`, `read`, `cp`, `cd`, or `git` anything there
 
 2. **All files exist locally via relative paths**
    - `./prod/...` ✅ CORRECT
    - `/path/to/main/project/prod/...` ❌ WRONG (escapes isolation)
 
 3. **Git commits in the wrong location = disaster**
-   - Commits made after escaping go to the WRONG branch
-   - This defeats the entire isolation system
+   - The parent is a SEPARATE worktree checked out on `master`/`main`
+   - Any `git commit` you run inside it lands on that branch — silently polluting trunk
+   - Always commit from inside YOUR worktree, where your spec branch is checked out
 
 ### Why You Might Be Tempted to Escape:
 
@@ -51,6 +52,23 @@ You may see absolute paths like `/e/projects/myapp/prod/src/file.ts` in:
 
 **DO NOT** `cd` to these paths. Instead, convert them to relative paths:
 - `/e/projects/myapp/prod/src/file.ts` → `./prod/src/file.ts`
+
+### The #1 Failure Mode (DO NOT REPEAT):
+
+You may discover that a file you wrote here does NOT exist in the parent project. **This is expected.**
+The parent is on a different branch and does not have your work yet.
+
+Do **NOT** "resolve" this by copying your file into the parent and committing there:
+
+```bash
+# ❌ WRONG — this is the canonical worktree-isolation disaster
+cp ./src/foo.py /path/to/parent/src/foo.py
+cd /path/to/parent && git add -A && git commit -m "..."
+# Result: commit lands on master, not on your spec branch
+```
+
+Your work is already saved by `git commit` inside this worktree. The user merges your branch
+later — that's how the parent gets your changes. **Treat the parent as if it does not exist.**
 
 ### Quick Check:
 

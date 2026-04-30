@@ -11,24 +11,36 @@ failure so it can be wired into CI / a slash command.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_docker_task import REPO_ROOT, run_task  # noqa: E402
+from test_docker_task import REPO_ROOT, add_runtime_args, run_task  # noqa: E402
 
 TASK = "create a hello_world.py file in /workspace that prints Hello, World"
 NAME = "auto-claude-hello-world-test"
 
 
 def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_runtime_args(p)
+    args = p.parse_args()
+
     specs_dir = REPO_ROOT / ".auto-claude" / "specs"
     before = {p.name for p in specs_dir.iterdir()} if specs_dir.exists() else set()
 
     started = time.time()
-    rc = run_task(TASK, name=NAME, project=REPO_ROOT)
+    rc = run_task(TASK, name=NAME, project=REPO_ROOT,
+                  image=args.image, keep=args.keep, timeout=args.timeout,
+                  reauth=args.reauth, validate=args.validate,
+                  rebuild=args.rebuild, allow_build=args.allow_build,
+                  dry_run=args.dry_run)
     elapsed = time.time() - started
+
+    if args.dry_run:
+        return rc
 
     if rc != 0:
         print(f"\nFAIL: container exited with code {rc} after {elapsed:.1f}s")

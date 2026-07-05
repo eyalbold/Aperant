@@ -5,19 +5,22 @@
 # On macOS the token is read from the login Keychain (same place Claude Code stores it).
 # On Linux/other the token is read from ~/.claude/.credentials.json.
 #
-# Usage: ./scripts/local-start.sh [--reauth] [--prod]
-#   --reauth   Force re-login via `claude /login` before starting
-#   --prod     Build and run the production Electron bundle (default: dev mode with HMR)
+# Usage: ./scripts/local-start.sh [--reauth] [--prod] [--claude-bin <path>]
+#   --reauth            Force re-login via `claude /login` before starting
+#   --prod              Build and run the production Electron bundle (default: dev mode with HMR)
+#   --claude-bin <path> Claude executable to use for /login (default: $CLAUDE_BIN or `claude` on PATH)
 
 set -euo pipefail
 
 REAUTH=false
 PROD=false
+CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --reauth) REAUTH=true; shift ;;
-    --prod)   PROD=true; shift ;;
+    --reauth)     REAUTH=true; shift ;;
+    --prod)       PROD=true; shift ;;
+    --claude-bin) CLAUDE_BIN="${2:?--claude-bin requires a path}"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -54,10 +57,10 @@ if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
     CREDS_JSON="$(read_keychain_creds)"
 
     if $REAUTH || [[ -z "$CREDS_JSON" ]]; then
-      echo "[1/2] Running 'claude /login'..."
+      echo "[1/2] Running '$CLAUDE_BIN /login'..."
       echo "      A browser window will open — complete the OAuth flow there."
       echo ""
-      claude /login
+      "$CLAUDE_BIN" /login
       CREDS_JSON="$(read_keychain_creds)"
     fi
 
@@ -73,10 +76,10 @@ if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
   else
     # Linux / other — credentials file
     if $REAUTH || [[ ! -f "$HOME/.claude/.credentials.json" ]]; then
-      echo "[1/2] Running 'claude /login'..."
+      echo "[1/2] Running '$CLAUDE_BIN /login'..."
       echo "      A browser window will open — complete the OAuth flow there."
       echo ""
-      claude /login
+      "$CLAUDE_BIN" /login
     fi
     TOKEN="$(read_credentials_file)"
     SOURCE="~/.claude/.credentials.json"
